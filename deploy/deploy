@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+
+function my_ssh {
+	ssh $HOST "$1"
+}
+
+function my_ssh_term {
+    ssh -t $HOST "$1" 2> /dev/null
+}
+
+function my_echo {
+	tput setaf 2
+	echo $1
+	tput sgr0
+}
+
+function error_echo {
+        tput setaf 1
+        echo $1
+        tput sgr0
+}
+
+function test_existence {
+	if ssh $HOST stat "$1" \> /dev/null 2\>\&1
+		then
+# if exit status is 0 then the function is true - controversial logic
+			return 0
+		else
+			return 1
+	fi
+}
+
+function setup_folder {
+    my_ssh "mkdir -m 777 -p $1"
+}
+
+#dir, target, name
+function symlink {
+    my_ssh "cd $1 && rm -f $3 && ln -s $2 $3"
+}
+
+HOST="deploy@up-finder.com"
+if [ "$1" == "production" ]
+	then
+		APP_ROOT="/home/deploy/apps/silk.web/production"
+		DAEMON_SUFFIX=""
+	elif [ "$1" == "staging" ]
+	then
+		APP_ROOT="/home/deploy/apps/silk.web/staging"
+		DAEMON_SUFFIX=".staging"
+	else
+		echo 'usage - ./deploy <production|staging>'
+		exit 0
+fi
+
+LOCAL_ROOT=$GOPATH/src/github.com/up-finder/silk.web
+LOCAL_RELEASE=$LOCAL_ROOT"/release"
+LOCAL_CONFIG=$LOCAL_ROOT"/config"
+
+cd $LOCAL_ROOT
+
+my_echo "Building from source"
+GOARCH=amd64 GOOS=linux go build
+
+my_echo "Moving to releases folder"
+mv $LOCAL_ROOT/silk.web $LOCAL_RELEASE
+cp $LOCAL_CONFIG/$1.json $LOCAL_RELEASE
+
+my_echo 'Getting the last version'
+LAST_VERSION=0
+if test_existence $APP_ROOT"/last_version"; then
+		LAST_VERSION=$(my_ssh "cat $APP_ROOT/last_version")
+fi
+
+my_echo "Last version = $LAST_VERSION"
+CURRENT_VERSION=$((LAST_VERSION + 1))
+
+
+RELEASES=$APP_ROOT"/releases"
+SHARED=$APP_ROOT"/shared"
+DEPLOY_TO=$RELEASES"/v"$CURRENT_VERSION
+TMP=$SHARED"/tmp"
+LOG=$SHARED"/log"
+FILEDB=$SHARED"/filedb"
+EXPORT=$FILEDB"/export"
+BACKUP=$FILEDB"/backup"
+CONFIG=$DEPLOY_TO"/config/"
+STATIC=$DEPLOY_TO"/static/"
+
+my_echo "Setting up remote folder structure"
+setup_folder $RELEASES
+if test_existence $DEPLOY_TO; then
+	error_echo "The path $DEPLOY_TO already exists, exiting..."
+	exit 1
+fi
+setup_folder $DEPLOY_TO
+setup_folder $SHARED
+setup_folder $TMP
+setup_folder $LOG
+setup_folder $FILEDB
+setup_folder $EXPORT
+setup_folder $BACKUP
+setup_folder $CONFIG
+setup_folder $STATIC
+
+my_echo "Deploying to $HOST:$DEPLOY_TO"
+scp $LOCAL_ROOT/release/silk.web $HOST:$DEPLOY_TO
+scp $LOCAL_ROOT/deploy/$1.daemon $HOST:$DEPLOY_TO/daemon
+scp $LOCAL_ROOT/release/$1.json $HOST:$CONFIG
+scp $LOCAL_ROOT/static/$1.script.js $HOST:$STATIC/script.js
+
+my_echo 'Symlinking shared folders'
+symlink $APP_ROOT $RELEASES/v$CURRENT_VERSION "current"
+symlink $DEPLOY_TO $TMP "tmp"
+symlink $DEPLOY_TO $LOG "log"
+symlink $DEPLOY_TO $FILEDB "filedb"
+
+my_echo "Updating last version to $CURRENT_VERSION"
+my_ssh "echo $CURRENT_VERSION > $APP_ROOT/last_version"
+
+my_echo "Deploying daemon"
+my_echo "Checking permissions"
+SUDOER_FILE="/etc/sudoers.d/silkdaemon"
+if ! test_existence $SUDOER_FILE; then
+    SUDO_CONTENTS=$(cat $LOCAL_ROOT/deploy/sudoers)
+    my_ssh_term "echo -e \"$SUDO_CONTENTS\" | sudo tee $SUDOER_FILE > /dev/null"
+    my_ssh_term "sudo chmod -R 755 /etc/sudoers.d"
+fi
+
+DAEMON_FILE="/etc/init.d/silk.web$DAEMON_SUFFIX"
+if ! test_existence $DAEMON_FILE; then
+    my_ssh_term "sudo /bin/cp $APP_ROOT/current/daemon $DAEMON_FILE"
+#   Use for ubuntu deploy
+#    my_ssh_term "sudo update-rc.d silk.web$DAEMON_SUFFIX defaults"
+    else
+    my_ssh_term "sudo /bin/cp $APP_ROOT/current/daemon $DAEMON_FILE"
+fi
+
+my_echo "Restarting daemon"
+my_ssh_term "sudo /bin/systemctl stop monit.service"
+my_ssh_term "sudo $DAEMON_FILE restart"
+my_ssh_term "sudo /bin/systemctl start monit.service"
+
+my_echo 'Done!'

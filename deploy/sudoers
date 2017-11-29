@@ -1,0 +1,7 @@
+deploy ALL = (root) NOPASSWD: /bin/cp /home/deploy/apps/silk.web/production/current/daemon /etc/init.d/silk.web
+deploy ALL = (root) NOPASSWD: /bin/cp /home/deploy/apps/silk.web/staging/current/daemon /etc/init.d/silk.web.staging
+deploy ALL = (root) NOPASSWD: /usr/sbin/update-rc.d
+deploy ALL = (root) NOPASSWD: /etc/init.d/silk.web
+deploy ALL = (root) NOPASSWD: /etc/init.d/silk.web.staging
+deploy ALL = (root) NOPASSWD: /bin/systemctl stop monit.service
+deploy ALL = (root) NOPASSWD: /bin/systemctl start monit.service

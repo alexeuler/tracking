@@ -1,0 +1,26 @@
+{
+  "DB": {
+    "File": {
+      "NumberOfFiles": 1,
+      "NumberOfReties": 3,
+      "RetryDelay": 1000,
+      "Path": "filedb",
+      "ExportPath":"filedb/export"
+    },
+    "Redis": {
+      "Host": "localhost:6379",
+      "Password": "",
+      "DB": 13
+    }
+  },
+  "Log": {
+    "Path":"log/silk.web.log",
+    "Level": "Error"
+  },
+  "System": {
+    "PidPath": "tmp/silk.web.pid"
+  },
+  "Server": {
+    "Port":9030
+  }
+}

@@ -1,0 +1,70 @@
+#!/bin/sh
+
+### BEGIN INIT INFO
+# Provides:          silk.web
+# Required-Start:    $all
+# Required-Stop:     $all
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: starts the silk.web server
+# Description:       starts the silk.web server using start-stop-daemon
+### END INIT INFO
+
+set -e
+
+USAGE="Usage: $0 <start|stop|restart|export>"
+
+# app settings
+APP_NAME="silk.web"
+APP_ROOT="/home/deploy/apps/silk.web/staging/current"
+
+# environment settings
+PID_PATH="$APP_ROOT/tmp/silk.web.pid"
+
+# make sure the app exists
+cd $APP_ROOT || exit 1
+
+start() {
+    echo "Starting $APP_NAME"
+    nohup $APP_ROOT/silk.web -e staging > /dev/null 2>&1 &
+    local PID=$!
+    echo $PID > $PID_PATH
+    sleep 1
+}
+
+stop() {
+    echo "Stopping $APP_NAME"
+    if [ -f $PID_PATH ]; then
+        local PID=$(cat $PID_PATH)
+        timeout=20
+        n=$timeout
+        kill -15 "$PID"
+        while kill -0 "$PID" > /dev/null 2>&1 && test $n -ge 0; do
+            printf '.' && sleep 1 && n=$(( $n - 1 ))
+        done
+        rm $PID_PATH
+    else
+        echo "Failed to stop, pidfile $PID_PATH not found"
+    fi
+}
+case $1 in
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  restart)
+    stop || true
+    sleep 1
+    start
+    ;;
+  export)
+    PID=$(cat $PID_PATH)
+    kill -s USR1 $PID
+    ;;
+  *)
+    echo >&2 $USAGE
+    exit 1
+    ;;
+esac
